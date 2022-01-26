@@ -1,0 +1,385 @@
+"""
+Model exported as python.
+Name : Multi-Hazard Exposure Analysis
+Group : MA Thesis
+With QGIS : 31616
+"""
+
+from qgis.core import QgsProcessing
+from qgis.core import QgsProcessingAlgorithm
+from qgis.core import QgsProcessingMultiStepFeedback
+from qgis.core import QgsProcessingParameterVectorLayer
+from qgis.core import QgsProcessingParameterFeatureSink
+from qgis.core import QgsProcessingParameterBoolean
+import processing
+
+
+class MultihazardExposureAnalysis(QgsProcessingAlgorithm):
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterVectorLayer('5yrFloodReturnPeriod', '5 yr Flood Return Period', optional=True, types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ActiveFaultLine', 'Active Fault Line', optional=True, types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('Buildings', 'Buildings', optional=True, types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('PointsofInterest', 'Points of Interest', optional=True, types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('Railways', 'Railways', optional=True, types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('RoadNetworks', 'Road Networks', optional=True, types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('Waterways', 'Waterways', optional=True, types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('RoadNetworkAflRisk', 'ROAD NETWORK AFL RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('RailwaysAflRisk', 'RAILWAYS AFL RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('RoadNetworkWaterwaysRisk', 'ROAD NETWORK WATERWAYS RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('RailwaysWaterwaysRisk', 'RAILWAYS WATERWAYS RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('RoadNetwork5YrFloodRisk', 'ROAD NETWORK 5 YR FLOOD RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Railways5YrFloodRisk', 'RAILWAYS 5 YR FLOOD RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('PoiAflRisk', 'POI AFL RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('BuildingsAflRisk', 'BUILDINGS AFL RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('PoiWaterwaysRisk', 'POI WATERWAYS RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('BuildingsWaterwaysRisk', 'BUILDINGS WATERWAYS RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Poi5YrFloodRisk', 'POI 5 YR FLOOD RISK', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Buildings5YrFloodNotAtRisk', 'BUILDINGS 5 YR FLOOD NOT AT RISK', optional=True, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=False, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Buildings5YrFloodRisk', 'BUILDINGS 5 YR FLOOD RISK', optional=True, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterBoolean('VERBOSE_LOG', 'Verbose logging', optional=True, defaultValue=False))
+
+    def processAlgorithm(self, parameters, context, model_feedback):
+        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
+        # overall progress through the model
+        feedback = QgsProcessingMultiStepFeedback(20, model_feedback)
+        results = {}
+        outputs = {}
+
+        # 5yr Flood Road Networks Intersection
+        alg_params = {
+            'INPUT': parameters['RoadNetworks'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': parameters['5yrFloodReturnPeriod'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['YrFloodRoadNetworksIntersection'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(1)
+        if feedback.isCanceled():
+            return {}
+
+        # 5 yr Flood Road Networks Length Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': '$length',
+            'INPUT': outputs['YrFloodRoadNetworksIntersection']['OUTPUT'],
+            'OUTPUT': parameters['RoadNetwork5YrFloodRisk']
+        }
+        outputs['YrFloodRoadNetworksLengthFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['RoadNetwork5YrFloodRisk'] = outputs['YrFloodRoadNetworksLengthFieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(2)
+        if feedback.isCanceled():
+            return {}
+
+        # 5yr Flood Join attributes by location
+        alg_params = {
+            'DISCARD_NONMATCHING': True,
+            'INPUT': parameters['Buildings'],
+            'JOIN': parameters['5yrFloodReturnPeriod'],
+            'JOIN_FIELDS': [''],
+            'METHOD': 0,
+            'PREDICATE': [0],
+            'PREFIX': '',
+            'NON_MATCHING': parameters['Buildings5YrFloodNotAtRisk'],
+            'OUTPUT': parameters['Buildings5YrFloodRisk']
+        }
+        outputs['YrFloodJoinAttributesByLocation'] = processing.run('native:joinattributesbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Buildings5YrFloodNotAtRisk'] = outputs['YrFloodJoinAttributesByLocation']['NON_MATCHING']
+        results['Buildings5YrFloodRisk'] = outputs['YrFloodJoinAttributesByLocation']['OUTPUT']
+
+        feedback.setCurrentStep(3)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways 3m Buffer
+        alg_params = {
+            'DISSOLVE': True,
+            'DISTANCE': 3,
+            'END_CAP_STYLE': 0,
+            'INPUT': parameters['Waterways'],
+            'JOIN_STYLE': 0,
+            'MITER_LIMIT': 2,
+            'SEGMENTS': 5,
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Waterways3mBuffer'] = processing.run('native:buffer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(4)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Intersection POI
+        alg_params = {
+            'INPUT': parameters['PointsofInterest'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['Waterways3mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': parameters['PoiWaterwaysRisk']
+        }
+        outputs['WaterwaysIntersectionPoi'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['PoiWaterwaysRisk'] = outputs['WaterwaysIntersectionPoi']['OUTPUT']
+
+        feedback.setCurrentStep(5)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Intersection Buildings
+        alg_params = {
+            'INPUT': parameters['Buildings'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['Waterways3mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': parameters['BuildingsWaterwaysRisk']
+        }
+        outputs['WaterwaysIntersectionBuildings'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['BuildingsWaterwaysRisk'] = outputs['WaterwaysIntersectionBuildings']['OUTPUT']
+
+        feedback.setCurrentStep(6)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line 10m Buffer
+        alg_params = {
+            'DISSOLVE': True,
+            'DISTANCE': 10,
+            'END_CAP_STYLE': 0,
+            'INPUT': parameters['ActiveFaultLine'],
+            'JOIN_STYLE': 0,
+            'MITER_LIMIT': 2,
+            'SEGMENTS': 5,
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['ActiveFaultLine10mBuffer'] = processing.run('native:buffer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(7)
+        if feedback.isCanceled():
+            return {}
+
+        # 5yr Flood POI Intersection
+        alg_params = {
+            'INPUT': parameters['PointsofInterest'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': parameters['5yrFloodReturnPeriod'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': parameters['Poi5YrFloodRisk']
+        }
+        outputs['YrFloodPoiIntersection'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Poi5YrFloodRisk'] = outputs['YrFloodPoiIntersection']['OUTPUT']
+
+        feedback.setCurrentStep(8)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Intersection Road Networks
+        alg_params = {
+            'INPUT': parameters['RoadNetworks'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['ActiveFaultLine10mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['ActiveFaultLineIntersectionRoadNetworks'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(9)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Intersection Railways
+        alg_params = {
+            'INPUT': parameters['Railways'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['ActiveFaultLine10mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['ActiveFaultLineIntersectionRailways'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(10)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Intersection POI
+        alg_params = {
+            'INPUT': parameters['PointsofInterest'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['ActiveFaultLine10mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': parameters['PoiAflRisk']
+        }
+        outputs['ActiveFaultLineIntersectionPoi'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['PoiAflRisk'] = outputs['ActiveFaultLineIntersectionPoi']['OUTPUT']
+
+        feedback.setCurrentStep(11)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Railways Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': ' $length ',
+            'INPUT': outputs['ActiveFaultLineIntersectionRailways']['OUTPUT'],
+            'OUTPUT': parameters['RailwaysAflRisk']
+        }
+        outputs['ActiveFaultLineRailwaysFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['RailwaysAflRisk'] = outputs['ActiveFaultLineRailwaysFieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(12)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Intersection Railways
+        alg_params = {
+            'INPUT': parameters['Railways'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['Waterways3mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['WaterwaysIntersectionRailways'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(13)
+        if feedback.isCanceled():
+            return {}
+
+        # 5yr Flood Railways Intersection
+        alg_params = {
+            'INPUT': parameters['Railways'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': parameters['5yrFloodReturnPeriod'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['YrFloodRailwaysIntersection'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(14)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Intersection Road Networks
+        alg_params = {
+            'INPUT': parameters['RoadNetworks'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['Waterways3mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['WaterwaysIntersectionRoadNetworks'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(15)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Intersection Buildings
+        alg_params = {
+            'INPUT': parameters['Buildings'],
+            'INPUT_FIELDS': [''],
+            'OVERLAY': outputs['ActiveFaultLine10mBuffer']['OUTPUT'],
+            'OVERLAY_FIELDS': [''],
+            'OVERLAY_FIELDS_PREFIX': '',
+            'OUTPUT': parameters['BuildingsAflRisk']
+        }
+        outputs['ActiveFaultLineIntersectionBuildings'] = processing.run('native:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['BuildingsAflRisk'] = outputs['ActiveFaultLineIntersectionBuildings']['OUTPUT']
+
+        feedback.setCurrentStep(16)
+        if feedback.isCanceled():
+            return {}
+
+        # Active Fault Line Road Network Length Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': ' $length ',
+            'INPUT': outputs['ActiveFaultLineIntersectionRoadNetworks']['OUTPUT'],
+            'OUTPUT': parameters['RoadNetworkAflRisk']
+        }
+        outputs['ActiveFaultLineRoadNetworkLengthFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['RoadNetworkAflRisk'] = outputs['ActiveFaultLineRoadNetworkLengthFieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(17)
+        if feedback.isCanceled():
+            return {}
+
+        # 5 yr Flood Railways Length Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': ' $length ',
+            'INPUT': outputs['YrFloodRailwaysIntersection']['OUTPUT'],
+            'OUTPUT': parameters['Railways5YrFloodRisk']
+        }
+        outputs['YrFloodRailwaysLengthFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Railways5YrFloodRisk'] = outputs['YrFloodRailwaysLengthFieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(18)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Length Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': ' $length ',
+            'INPUT': outputs['WaterwaysIntersectionRoadNetworks']['OUTPUT'],
+            'OUTPUT': parameters['RoadNetworkWaterwaysRisk']
+        }
+        outputs['WaterwaysLengthFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['RoadNetworkWaterwaysRisk'] = outputs['WaterwaysLengthFieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(19)
+        if feedback.isCanceled():
+            return {}
+
+        # Waterways Length Field Railways Field calculator
+        alg_params = {
+            'FIELD_LENGTH': 10,
+            'FIELD_NAME': 'Length',
+            'FIELD_PRECISION': 3,
+            'FIELD_TYPE': 1,
+            'FORMULA': ' $length ',
+            'INPUT': outputs['WaterwaysIntersectionRailways']['OUTPUT'],
+            'OUTPUT': parameters['RailwaysWaterwaysRisk']
+        }
+        outputs['WaterwaysLengthFieldRailwaysFieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['RailwaysWaterwaysRisk'] = outputs['WaterwaysLengthFieldRailwaysFieldCalculator']['OUTPUT']
+        return results
+
+    def name(self):
+        return 'Multi-Hazard Exposure Analysis'
+
+    def displayName(self):
+        return 'Multi-Hazard Exposure Analysis'
+
+    def group(self):
+        return 'MA Thesis'
+
+    def groupId(self):
+        return 'MA Thesis'
+
+    def createInstance(self):
+        return MultihazardExposureAnalysis()
